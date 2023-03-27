@@ -1,0 +1,169 @@
+import cv2
+import CHIP003
+import CHIP001
+import PySimpleGUI as sg
+inp = CHIP001.initializeDatabase()
+sg.theme('Black')
+import GCHIP001 as graph
+import numpy as np
+import psutil as cpus
+from playsound import playsound
+
+import threading
+def play():
+    playsound(s)
+
+
+    
+process = 0
+
+
+if inp == 'jitesh':
+    path = r'C:\Users\tpmso\Jithu\ondrive_tmp\OneDrive\WeaponXML.xml'
+    cfg = r"C:\Users\tpmso\Jithu\ondrive_tmp\OneDrive\weapon.cfg"
+    weights = r"C:\Users\tpmso\Jithu\ondrive_tmp\OneDrive\yolov3_training_2000.weights"
+    s = r'C:\Users\tpmso\Jithu\ondrive_tmp\OneDrive\sound.wav'
+    
+    
+    
+elif inp == 'nithish':
+    path = r'C:\CCTV based Crime Detection and Prevention (CCDP)\OneDrive\WeaponXML.xml'
+    cfg = r"C:\CCTV based Crime Detection and Prevention (CCDP)\OneDrive\weapon.cfg"
+    weights = r"C:\CCTV based Crime Detection and Prevention (CCDP)\OneDrive\yolov3_training_2000.weights"
+    s = r'C:\CCTV based Crime Detection and Prevention (CCDP)\OneDrive\sound.wav'
+
+else:
+    exit()
+
+net = cv2.dnn.readNet(weights, cfg)
+classes = ["Gun"]
+
+layer_names = net.getLayerNames()
+
+output_layers = [layer_names[i - 1] for i in net.getUnconnectedOutLayers()]
+
+
+
+gun_cascade = cv2.CascadeClassifier(path)
+
+column1 = [
+    [sg.Frame('Criminal Detection Status', [[sg.Text("Obama detected", font=["Helvetica"], expand_y=True, key='-CRIMINAL')]])],
+    [sg.Frame('Weapon Detection Status', [[sg.Text("Gun detected", font=["Helvetica"], key='-GUN-')]])],
+    [sg.Frame('CCDP Status                  ', [[sg.Text("Idle", font=["Helvetica"], key='-STATUS-')]])]
+]
+
+column2 = [
+    [sg.Image(key='-IMAGE-')],
+    [sg.Frame('CPU Usage', [[sg.Text("None", font=["Helvetica"], size=(200, 0),key='CPU')]])],
+]
+
+layout = [
+    [sg.Frame('First Column', [[sg.Column(column1, element_justification='c', size=(250, 480))]]),
+     sg.VSeparator(),
+     sg.Frame('Second Column', [[sg.Column(column2, element_justification='c')]])],
+]
+
+window = sg.Window('CCTV-based Criminal Detection & Prevention (MVP)', layout, finalize=True)
+#window.Maximize()
+
+
+prev_frame_time = 0
+
+new_frame_time = 0
+cam = CHIP003.WebCamFrameObject().start()
+
+while True:
+    threadx = threading.Thread(target=play, args=())
+    gun = 'Not Detected'
+    event, values = window.read(timeout=0)
+    if event == sg.WIN_CLOSED:
+        break
+
+    status = 'Idle...'
+    
+
+    flip_img = cam.read()
+    # flip_img = cv2.flip(frame, 1)
+
+    if process == 4:
+        height, width, channels = flip_img.shape
+        blob = cv2.dnn.blobFromImage(flip_img, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
+
+        net.setInput(blob)
+        outs = net.forward(output_layers)
+
+    
+        class_ids = []
+        confidences = []
+        boxes = []
+        for out in outs:
+            for detection in out:
+                scores = detection[5:]
+                class_id = np.argmax(scores)
+                confidence = scores[class_id]
+                if confidence > 0.5:
+                    center_x = int(detection[0] * width)
+                    center_y = int(detection[1] * height)
+                    w = int(detection[2] * width)
+                    h = int(detection[3] * height)
+
+              
+                    x = int(center_x - w / 2)
+                    y = int(center_y - h / 2)
+
+                    boxes.append([x, y, w, h])
+                    confidences.append(float(confidence))
+                class_ids.append(class_id)
+
+        indexes = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
+        
+        
+        font = cv2.FONT_HERSHEY_PLAIN
+        for i in range(len(boxes)):
+            if i in indexes:
+                x, y, w, h = boxes[i]
+                label = str(classes[class_ids[i]])
+                color = (0,0,0)
+                graph.roi(flip_img, (x, y), (x + w, y + h), color, 2, 10,20)
+                cv2.putText(flip_img, label, (x, y + 30), font, 3, (255,255,255), 3)
+                gun = 'Detected'
+                status = 'Raising Alarm...'
+
+    
+
+    flip_img, name = CHIP001.loadFrameforProcessing(flip_img, True)
+    if name != 'Unknown':
+        if name != 'No Subject':
+            status = 'Raising Alarm...'
+    elif status == 'Raising ALarm...':
+        status == 'Raising ALarm...'
+        
+
+    else:
+        status = 'Idle...'
+
+    if status == 'Raising Alarm...':
+        threadx.start()
+        threadx = None
+        
+    process = process + 1
+    if process == 5:
+        process = 0
+
+    cpu = cpus.cpu_percent()
+
+    imgbytes = cv2.imencode(".png", flip_img)[1].tobytes()
+    window['-IMAGE-'].update(data=imgbytes)
+    window['-CRIMINAL'].update(f'{name} detected')
+    window['-GUN-'].update(gun)
+    window['-STATUS-'].update(status)
+    window['CPU'].update(str(cpu))
+
+    # cv2.imshow('', flip_img)
+
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+    window.refresh()
+    
+cam.kill()
+cv2.destroyAllWindows()
